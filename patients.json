@@ -1,0 +1,30 @@
+{
+  "patient-101": {
+    "name": "John Doe",
+    "age": 62,
+    "allergies": ["sulfa", "sulfonamide", "bactrim"],
+    "active": "Lisinopril 10mg",
+    "avatar": "👨\u200d🦳"
+  },
+  "patient-102": {
+    "name": "Jane Smith",
+    "age": 45,
+    "allergies": ["penicillin", "amoxicillin", "ampicillin"],
+    "active": "Atorvastatin 20mg",
+    "avatar": "👩"
+  },
+  "patient-103": {
+    "name": "Robert Johnson",
+    "age": 71,
+    "allergies": ["aspirin", "acetylsalicylic acid"],
+    "active": "Metoprolol 50mg",
+    "avatar": "👴"
+  },
+  "patient-104": {
+    "name": "Alice Brown",
+    "age": 29,
+    "allergies": [],
+    "active": "None",
+    "avatar": "👩\u200d🦰"
+  }
+}

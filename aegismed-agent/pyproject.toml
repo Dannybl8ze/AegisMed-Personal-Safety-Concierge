@@ -1,0 +1,22 @@
+[project]
+name = "aegismed-agent"
+version = "0.1.0"
+description = "AegisMed Personal Safety Concierge Agent"
+authors = [
+    {name = "Sunday Daniel Friday", email = "sdfridaysd@gmail.com"},
+]
+dependencies = [
+    "google-adk[gcp]>=2.0.0,<3.0.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.28.0",
+    "pydantic>=2.0.0",
+    "fastmcp>=0.1.0",
+]
+requires-python = ">=3.11,<3.14"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["app"]

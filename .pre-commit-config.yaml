@@ -1,0 +1,8 @@
+repos:
+  - repo: local
+    hooks:
+      - id: semgrep-secrets
+        name: Semgrep Secret Scanner
+        entry: .venv/Scripts/semgrep.exe --config=p/secrets --error
+        language: system
+        files: \.(py|js|json|md|txt|yaml|yml)$

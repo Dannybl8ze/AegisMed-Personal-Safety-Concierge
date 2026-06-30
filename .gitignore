@@ -1,0 +1,27 @@
+# Python venv and caching
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Node modules
+node_modules/
+
+# Agent build and cache files
+.agents/cache/
+.agents/logs/
+.pre-commit-cache/
+.adk/
+app/.adk/
+
+# Artifact traces and grading
+artifacts/traces/
+artifacts/grade_results/
+
+# Local configuration and state files
+.env
+*.local
+chat_history.json
+scratch/
+*.log
