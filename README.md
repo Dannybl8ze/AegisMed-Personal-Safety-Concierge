@@ -4,17 +4,11 @@ AegisMed is a state-of-the-art personal safety concierge and clinical safety fir
 
 ---
 
-## 📸 Workflow & UI Mockups
+## 📸 Caregiver Portal & Live Dashboard Overview
 
-### Caregiver Portal & Live Dashboard Overview
 The glassmorphic dark-themed Caregiver Dashboard aggregates patient history, active regimens switcher, allergy alerts, and a secure safety concierge chat:
 
-![AegisMed Caregiver Portal Dashboard](docs/images/dashboard_overview.png)
-
-### Clinical Decision Alerts & Override Triage
-Close-up view of a critical clinical contraindication alert card, enabling caregiver override triage decisions:
-
-![Clinical Decision Override Triage](docs/images/safety_override.png)
+![AegisMed Caregiver Portal Dashboard](docs/images/dashboard_demo.png)
 
 ---
 
