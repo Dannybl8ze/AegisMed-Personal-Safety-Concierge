@@ -22,6 +22,11 @@ artifacts/grade_results/
 # Local configuration and state files
 .env
 *.local
+.data/
 chat_history.json
+pending_sessions.json
 scratch/
 *.log
+
+# Test cache
+.pytest_cache/
