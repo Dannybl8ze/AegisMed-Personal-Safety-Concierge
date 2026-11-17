@@ -41,6 +41,14 @@ export type SafetyAlert = {
   status: AlertStatus;
 };
 
+export type SessionInfo = {
+  /** Whether this deployment asks people to sign in. */
+  required: boolean;
+  authenticated: boolean;
+  /** False when sign-in is required but the server has no access code set. */
+  configured: boolean;
+};
+
 export type DashboardState = {
   patients: Patients;
   history: ChatMessage[];

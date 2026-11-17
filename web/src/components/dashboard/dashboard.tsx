@@ -6,9 +6,13 @@ import { toast } from "sonner";
 
 import { AppRail, type RailSection } from "@/components/dashboard/app-rail";
 import { ChatPanel } from "@/components/dashboard/chat-panel";
+import { PanelError } from "@/components/dashboard/panel-states";
 import { ResetDialog } from "@/components/dashboard/reset-dialog";
 import { ReviewPortal } from "@/components/dashboard/review-portal";
+import { SignIn } from "@/components/dashboard/sign-in";
+import { SignOutButton } from "@/components/dashboard/sign-out-button";
 import { TopBar } from "@/components/dashboard/top-bar";
+import { useAuth } from "@/hooks/use-auth";
 import { useDashboard, useHydrated } from "@/hooks/use-dashboard";
 import { ALL_PATIENTS, matchesPatient } from "@/lib/format";
 import type { PatientFilter } from "@/lib/types";
@@ -26,8 +30,16 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
-function DashboardClient() {
-  const dashboard = useDashboard();
+function DashboardClient({
+  signInRequired,
+  onSignOut,
+  onSignedOut,
+}: {
+  signInRequired: boolean;
+  onSignOut: () => void;
+  onSignedOut: () => void;
+}) {
+  const dashboard = useDashboard(onSignedOut);
   const [selected, setSelected] = useState<PatientFilter>(ALL_PATIENTS);
   const [located, setLocated] = useState<string | null>(null);
   const [section, setSection] = useState("sandbox");
@@ -84,12 +96,22 @@ function DashboardClient() {
         sections={sections}
         activeId={section}
         onSelect={goToSection}
-        footer={<ResetDialog onReset={dashboard.resetDemo} />}
+        footer={
+          <>
+            <ResetDialog onReset={dashboard.resetDemo} />
+            {signInRequired && <SignOutButton onSignOut={onSignOut} />}
+          </>
+        }
         className="hidden lg:flex"
       />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar dashboard={dashboard} selected={activeFilter} onSelect={setSelected} />
+        <TopBar
+          dashboard={dashboard}
+          selected={activeFilter}
+          onSelect={setSelected}
+          onSignOut={signInRequired ? onSignOut : undefined}
+        />
         <main className="grid flex-1 grid-cols-1 gap-5 p-4 sm:p-6 lg:min-h-0 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:pl-0">
           <ChatPanel dashboard={dashboard} selected={activeFilter} located={located} className="lg:min-h-0" />
           <ReviewPortal
@@ -118,5 +140,31 @@ function DashboardShell() {
 }
 
 export function Dashboard() {
-  return useHydrated() ? <DashboardClient /> : <DashboardShell />;
+  const hydrated = useHydrated();
+  const { state, signIn, signOut, expire, retry } = useAuth();
+
+  if (!hydrated || state.phase === "checking") return <DashboardShell />;
+
+  if (state.phase === "unreachable") {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-md items-center p-4">
+        <PanelError
+          className="w-full"
+          title="The dashboard could not be reached"
+          message={state.message}
+          onRetry={retry}
+        />
+      </main>
+    );
+  }
+
+  if (state.phase === "signed-out") return <SignIn configured={state.configured} onSignIn={signIn} />;
+
+  return (
+    <DashboardClient
+      signInRequired={state.required}
+      onSignOut={() => void signOut()}
+      onSignedOut={expire}
+    />
+  );
 }

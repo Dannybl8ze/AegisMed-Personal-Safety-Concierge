@@ -5,6 +5,7 @@ Run locally from the ``aegismed-agent`` directory::
     python -m dashboard_api.main
 """
 import asyncio
+import json
 import logging
 import os
 import re
@@ -20,9 +21,11 @@ from google.genai import types
 
 from app.agent import LLM_REVIEWER_NAME, app as adk_app
 from app.config import gemini_mode
-from app.safety_rules import canonical_patient_id
+from app.extraction import extract_patient_id, parse_medication_text
+from app.safety_rules import REVIEW_REQUIRED, canonical_patient_id
 from app.security import redact_pii
-from app.storage import StorageNotConfigured, get_storage
+from app.storage import Storage, StorageNotConfigured, get_storage
+from dashboard_api import auth
 from dashboard_api.session_service import StorageSessionService, session_key
 
 logging.basicConfig(level=logging.INFO)
@@ -37,7 +40,16 @@ PAUSED_RESPONSE = "🚨 WARNING: Clinical safety check failed. Prescription requ
 SECURITY_PAUSED_RESPONSE = (
     "🚨 SECURITY WARNING: Prompt-injection attempt detected. Prescription request held pending caregiver review."
 )
+REVIEW_PAUSED_RESPONSE = (
+    "🚨 REVIEW NEEDED: This request could not be fully checked automatically. "
+    "It is held pending caregiver review."
+)
 CAREGIVER_OUTCOMES = {"approved_by_caregiver": "approved", "rejected_by_caregiver": "rejected"}
+
+# Abuse limits for the endpoint that calls Gemini. Both can be tuned per deployment.
+CHAT_WINDOW_SECONDS = 5 * 60
+DEFAULT_CHAT_LIMIT = 20  # requests per client per window
+DEFAULT_DAILY_CHAT_LIMIT = 500  # requests per day for the whole deployment
 
 
 # -------------------------------------------------------------
@@ -93,6 +105,57 @@ def extract_referenced_patient(message: str, patients: dict) -> str:
         if any(len(part) > 2 and mentions(part) for part in patient.get("name", "").split()):
             return pid
     return "unknown"
+
+
+def resolve_patient(text: str, patients: dict, selected: str) -> str:
+    """The patient a request is about, as the id without its "patient-" prefix.
+
+    An id written in the text wins, then a patient's name, then the patient chosen
+    in the switcher. "unknown" means none of them applied.
+    """
+    explicit = extract_patient_id(text)
+    if explicit != "unknown":
+        return explicit
+    named = extract_referenced_patient(text, patients)
+    if named != "unknown":
+        return named.replace("patient-", "", 1)
+    chosen = canonical_patient_id(selected)
+    return chosen.replace("patient-", "", 1) if chosen in patients else "unknown"
+
+
+def build_agent_input(text: str, patients: dict, selected: str) -> str:
+    """The workflow's input: the request already parsed, with the patient resolved.
+
+    Parsing here means a request that names its patient only by name still gets
+    the allergy check. A message that is already a JSON request is passed on as is.
+    """
+    stripped = text.strip()
+    if stripped.startswith("{"):
+        try:
+            json.loads(stripped)
+            return text
+        except ValueError:
+            pass
+    request_fields = parse_medication_text(text)
+    request_fields["patient_id"] = resolve_patient(text, patients, selected)
+    return json.dumps(request_fields)
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.environ.get(name, default)))
+    except ValueError:
+        return default
+
+
+def chat_limit_message(storage: Storage, client: str) -> Optional[str]:
+    """A reason to refuse this chat request, or None when it is within the limits."""
+    if storage.hit(f"chat:{client}", CHAT_WINDOW_SECONDS) > _int_env("AEGISMED_CHAT_LIMIT", DEFAULT_CHAT_LIMIT):
+        return "Too many requests. Please wait a few minutes before sending another."
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    if storage.hit(f"chat-day:{today}", 24 * 60 * 60) > _int_env("AEGISMED_DAILY_CHAT_LIMIT", DEFAULT_DAILY_CHAT_LIMIT):
+        return "The daily request limit for this demo has been reached. Please try again tomorrow."
+    return None
 
 
 async def run_agent_message(user_id: str, session_id: str, message: str, resume_inputs: Optional[dict] = None) -> dict:
@@ -163,11 +226,17 @@ async def run_agent_message(user_id: str, session_id: str, message: str, resume_
             "status": "pending",
         }
         await asyncio.to_thread(storage.save_alert, session_id, alert)
+        if state.get("security_event"):
+            paused_response = SECURITY_PAUSED_RESPONSE
+        elif str(state.get("mcp_safety_result", "")).startswith(REVIEW_REQUIRED):
+            paused_response = REVIEW_PAUSED_RESPONSE
+        else:
+            paused_response = PAUSED_RESPONSE
         return {
             "status": "paused",
             "session_id": session_id,
             "interrupt_id": interrupt_id,
-            "response": SECURITY_PAUSED_RESPONSE if state.get("security_event") else PAUSED_RESPONSE,
+            "response": paused_response,
             "patient_id": req.get("patient_id", "unknown"),
             "state": state,
         }
@@ -197,6 +266,63 @@ async def storage_not_configured(request: Request, exc: StorageNotConfigured) ->
 async def unhandled_error(request: Request, exc: Exception) -> JSONResponse:
     logger.error("Unhandled error on %s", request.url.path, exc_info=exc)
     return _error(500, "Internal server error.")
+
+
+# -------------------------------------------------------------
+# Access control
+# -------------------------------------------------------------
+
+@app.middleware("http")
+async def require_sign_in(request: Request, call_next):
+    """Every data endpoint needs a session; only login, logout and session checks are open."""
+    path = request.url.path
+    if path.startswith("/api/") and path not in auth.PUBLIC_API_PATHS and auth.auth_required():
+        if not auth.access_code():
+            return _error(503, "Access is not configured. Set AEGISMED_ACCESS_CODE for this deployment.")
+        if not auth.is_signed_in(request):
+            return _error(401, "Sign in required.")
+    return await call_next(request)
+
+
+@app.get("/api/session", response_class=JSONResponse)
+def get_session(request: Request):
+    """Whether sign-in is required and whether this browser is signed in."""
+    required = auth.auth_required()
+    return {
+        "required": required,
+        "authenticated": (not required) or auth.is_signed_in(request),
+        "configured": bool(auth.access_code()) or not auth.is_hosted(),
+    }
+
+
+@app.post("/api/login", response_class=JSONResponse)
+async def post_login(request: Request, code: str = Form("")):
+    expected = auth.access_code()
+    if not expected:
+        if auth.is_hosted():
+            return _error(503, "Access is not configured. Set AEGISMED_ACCESS_CODE for this deployment.")
+        return {"status": "success", "required": False}
+
+    attempts = await asyncio.to_thread(
+        get_storage().hit, f"login:{auth.client_id(request)}", auth.LOGIN_WINDOW_SECONDS
+    )
+    if attempts > auth.LOGIN_ATTEMPTS:
+        response = _error(429, "Too many sign-in attempts. Please wait 15 minutes and try again.")
+        response.headers["Retry-After"] = str(auth.LOGIN_WINDOW_SECONDS)
+        return response
+    if not auth.code_matches(code, expected):
+        return _error(401, "That access code is not correct.")
+
+    response = JSONResponse({"status": "success"})
+    auth.set_session_cookie(response, request, expected)
+    return response
+
+
+@app.post("/api/logout", response_class=JSONResponse)
+def post_logout():
+    response = JSONResponse({"status": "success"})
+    auth.clear_session_cookie(response)
+    return response
 
 
 # -------------------------------------------------------------
@@ -245,21 +371,29 @@ def add_patient(
 
 @app.post("/api/chat", response_class=JSONResponse)
 async def post_chat(
+    request: Request,
     message: str = Form(...),
     session_id: str = Form("session-default"),
     user_id: str = Form("user-default"),
     patient_id: str = Form("unknown"),
 ):
     storage = get_storage()
+    refusal = await asyncio.to_thread(chat_limit_message, storage, auth.client_id(request))
+    if refusal:
+        response = _error(429, refusal)
+        response.headers["Retry-After"] = str(CHAT_WINDOW_SECONDS)
+        return response
+
     # Scrub PII at the boundary so it is never stored or sent onward in the clear.
     safe_message, _ = redact_pii(message)
 
+    patients = await asyncio.to_thread(storage.get_patients)
     target_pid = patient_id.strip().lower()
     if target_pid in ("all", "unknown"):
-        target_pid = extract_referenced_patient(safe_message, await asyncio.to_thread(storage.get_patients))
+        target_pid = extract_referenced_patient(safe_message, patients)
     user_msg = _chat_message("user", safe_message, session_id, target_pid)
 
-    result = await run_agent_message(user_id, session_id, safe_message)
+    result = await run_agent_message(user_id, session_id, build_agent_input(safe_message, patients, patient_id))
     if result["status"] == "error":
         return JSONResponse(status_code=502, content=result)
 

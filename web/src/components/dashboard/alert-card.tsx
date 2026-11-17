@@ -1,14 +1,47 @@
 "use client";
 
 import { useId } from "react";
-import { BanIcon, Loader2Icon, LocateFixedIcon, ShieldAlertIcon, ShieldCheckIcon, TriangleAlertIcon } from "lucide-react";
+import {
+  BanIcon,
+  CircleHelpIcon,
+  Loader2Icon,
+  LocateFixedIcon,
+  ShieldAlertIcon,
+  ShieldCheckIcon,
+  TriangleAlertIcon,
+} from "lucide-react";
 
 import { RiskMeter } from "@/components/dashboard/status-badges";
 import { Alert, AlertAction, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { findPatient, isSecurityHold, medicationLabel } from "@/lib/format";
+import { alertKind, findPatient, medicationLabel, safetyText } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { CaregiverDecision, Patients, SafetyAlert } from "@/lib/types";
+
+/** How each kind of hold looks: wording, icon and colours. Colour is never the only signal. */
+const KIND_LOOK = {
+  security: {
+    Icon: ShieldAlertIcon,
+    kicker: "Security hold",
+    heading: "Security hold:",
+    badge: "bg-surface-danger text-destructive",
+    box: "bg-surface-danger text-on-surface-danger",
+  },
+  review: {
+    Icon: CircleHelpIcon,
+    kicker: "Needs review",
+    heading: "Needs review:",
+    badge: "bg-surface-info text-info",
+    box: "bg-surface-info text-on-surface-info",
+  },
+  contraindication: {
+    Icon: TriangleAlertIcon,
+    kicker: "Contraindication",
+    heading: "Contraindication flagged:",
+    badge: "bg-surface-warning text-warning",
+    box: "bg-surface-warning text-on-surface-warning",
+  },
+} as const;
 
 /*
  * Adapted from "Alert with Icon and Actions" by @cnippet-dev on 21st.dev
@@ -30,10 +63,15 @@ export function AlertCard({
   onLocate: (sessionId: string) => void;
 }) {
   const titleId = useId();
-  const security = isSecurityHold(alert);
-  const Icon = security ? ShieldAlertIcon : TriangleAlertIcon;
+  const kind = alertKind(alert);
+  const look = KIND_LOOK[kind];
+  const Icon = look.Icon;
   const patient = findPatient(patients, alert.patient_id);
-  const extraWarnings = alert.warnings.filter((warning) => warning !== alert.safety_result);
+  const shownResult = safetyText(alert);
+  // Reasons already quoted in the result box are not listed again below it.
+  const extraWarnings = alert.warnings.filter(
+    (warning) => warning !== alert.safety_result && !shownResult.includes(warning),
+  );
   const busy = resolving !== undefined;
 
   return (
@@ -47,16 +85,13 @@ export function AlertCard({
       <div className="flex flex-wrap items-start gap-x-3 gap-y-2">
         <span
           aria-hidden
-          className={cn(
-            "flex size-11 shrink-0 items-center justify-center rounded-full",
-            security ? "bg-surface-danger text-destructive" : "bg-surface-warning text-warning",
-          )}
+          className={cn("flex size-11 shrink-0 items-center justify-center rounded-full", look.badge)}
         >
           <Icon className="size-5" />
         </span>
         <div className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-0">
           <p className="text-sm text-muted-foreground">
-            {security ? "Security hold" : "Contraindication"} <span aria-hidden>·</span> Patient ID:{" "}
+            {look.kicker} <span aria-hidden>·</span> Patient ID:{" "}
             {alert.patient_id}
             {patient ? ` · ${patient.name}` : ""}
           </p>
@@ -68,14 +103,9 @@ export function AlertCard({
       </div>
 
       <AlertDescription className="grid gap-3 text-base text-card-foreground md:text-pretty">
-        <div
-          className={cn(
-            "rounded-2xl px-4 py-3",
-            security ? "bg-surface-danger text-on-surface-danger" : "bg-surface-warning text-on-surface-warning",
-          )}
-        >
-          <p className="font-semibold">{security ? "Security hold:" : "Contraindication flagged:"}</p>
-          <p className="break-words">{alert.safety_result}</p>
+        <div className={cn("rounded-2xl px-4 py-3", look.box)}>
+          <p className="font-semibold">{look.heading}</p>
+          <p className="break-words">{shownResult}</p>
         </div>
 
         {extraWarnings.length > 0 && (

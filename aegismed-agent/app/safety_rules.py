@@ -19,6 +19,26 @@ def canonical_patient_id(patient_id: str) -> str:
     return f"patient-{cleaned}"
 
 
+REVIEW_REQUIRED = "REVIEW_REQUIRED"
+
+
+def review_reasons(patient_id: str, drug_name: str, dose_mg: float, patients: dict) -> list[str]:
+    """Why a request cannot be fully checked automatically (empty when it can).
+
+    The rule checks need a known patient, a drug name and a dose. Without
+    them they would answer "safe" simply because they had nothing to check, so
+    such requests are held for a caregiver instead of being approved.
+    """
+    reasons = []
+    if drug_name.strip().lower() in ("", "unknown"):
+        reasons.append("The medication could not be identified from the request.")
+    if dose_mg <= 0:
+        reasons.append("The dose in mg could not be read from the request.")
+    if canonical_patient_id(patient_id) not in patients:
+        reasons.append("The patient could not be identified, so allergies could not be checked.")
+    return reasons
+
+
 def verify_medication_safety(drug_name: str, dose_mg: float, frequency_per_day: int) -> str:
     """Check the total daily dose against clinical thresholds."""
     total_daily_dose = dose_mg * frequency_per_day

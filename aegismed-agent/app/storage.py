@@ -92,6 +92,15 @@ class Storage(ABC):
     def get_sessions(self) -> dict[str, str]:
         """Every serialized session keyed by its key."""
 
+    # -- rate limiting ------------------------------------------------------
+    @abstractmethod
+    def hit(self, key: str, window_seconds: int) -> int:
+        """Count one event under ``key`` and return how many occurred in its window.
+
+        Fixed window: the first event starts a window of ``window_seconds``; the
+        counter is dropped when that window ends. Not cleared by a demo reset.
+        """
+
     # -- demo reset ---------------------------------------------------------
     @abstractmethod
     def reset_demo_state(self) -> None:
@@ -187,6 +196,16 @@ class JsonFileStorage(Storage):
         with self._lock:
             return self._read("sessions", {})
 
+    def hit(self, key: str, window_seconds: int) -> int:
+        with self._lock:
+            now = time.time()
+            counters = {k: v for k, v in self._read("rate_limits", {}).items() if v["expires"] > now}
+            entry = counters.get(key) or {"count": 0, "expires": now + window_seconds}
+            entry["count"] += 1
+            counters[key] = entry
+            self._write("rate_limits", counters)
+            return entry["count"]
+
     def reset_demo_state(self) -> None:
         with self._lock:
             for name in ("alerts", "chat_history", "sessions"):
@@ -264,6 +283,13 @@ class UpstashStorage(Storage):
 
     def get_sessions(self) -> dict[str, str]:
         return self._redis.hgetall(self._key("sessions")) or {}
+
+    def hit(self, key: str, window_seconds: int) -> int:
+        redis_key = self._key(f"rl:{key}")
+        count = int(self._redis.incr(redis_key))
+        if count == 1:
+            self._redis.expire(redis_key, window_seconds)
+        return count
 
     def reset_demo_state(self) -> None:
         self._redis.delete(self._key("alerts"), self._key("chat"), self._key("sessions"))

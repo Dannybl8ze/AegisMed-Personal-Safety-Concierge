@@ -4,6 +4,7 @@ import type {
   DashboardState,
   NewPatient,
   PatientFilter,
+  SessionInfo,
 } from "@/lib/types";
 
 /** An API failure with a message that is safe to show to the user. */
@@ -52,7 +53,18 @@ function formBody(fields: Record<string, string>): FormData {
   return data;
 }
 
+/** True when the server says the browser is not signed in (or the session expired). */
+export function isSignedOut(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
 export const api = {
+  getSession: () => request<SessionInfo>("/api/session"),
+
+  login: (code: string) => request<{ status: string }>("/api/login", { method: "POST", body: formBody({ code }) }),
+
+  logout: () => request<{ status: string }>("/api/logout", { method: "POST" }),
+
   getState: () => request<DashboardState>("/api/state"),
 
   sendChat: (message: string, sessionId: string, patient: PatientFilter) =>

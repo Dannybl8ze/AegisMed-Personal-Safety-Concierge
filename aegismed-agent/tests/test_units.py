@@ -224,6 +224,23 @@ def test_gemini_client_is_env_driven_and_rebuilt_per_event_loop(monkeypatch):
     assert not first.vertexai
 
 
+def test_the_model_comes_from_gemini_model_with_a_current_default(monkeypatch):
+    import importlib
+
+    import app.config as config
+
+    try:
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        assert importlib.reload(config).MODEL_NAME == "gemini-3.8-flash"
+        monkeypatch.setenv("GEMINI_MODEL", "gemini-example-model")
+        assert importlib.reload(config).MODEL_NAME == "gemini-example-model"
+        monkeypatch.setenv("GEMINI_MODEL", "")
+        assert importlib.reload(config).MODEL_NAME == "gemini-3.8-flash", "an empty setting falls back to the default"
+    finally:
+        monkeypatch.delenv("GEMINI_MODEL", raising=False)
+        importlib.reload(config)
+
+
 # -- Static UI mount (container image) ------------------------------------------
 
 def test_static_ui_is_served_without_shadowing_the_api(tmp_path):

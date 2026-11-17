@@ -46,13 +46,30 @@ export function formatDose(dose: number): string {
   return Number.isInteger(dose) ? dose.toFixed(1) : String(dose);
 }
 
-/** "Warfarin 6.0mg x 2/day" */
+/** "Warfarin 6.0mg x 2/day"; requests the parser could not read say so instead of "unknown 0.0mg". */
 export function medicationLabel(alert: SafetyAlert): string {
-  return `${alert.drug_name} ${formatDose(alert.dose_mg)}mg x ${alert.frequency_per_day}/day`;
+  const drug = alert.drug_name.trim().toLowerCase() === "unknown" ? "Unrecognised medication" : alert.drug_name;
+  const dose = alert.dose_mg > 0 ? `${formatDose(alert.dose_mg)}mg` : "dose not read";
+  return `${drug} ${dose} x ${alert.frequency_per_day}/day`;
 }
 
-export function isSecurityHold(alert: SafetyAlert): boolean {
-  return alert.safety_result.startsWith("SECURITY_HOLD") || alert.warnings.some((w) => w.startsWith("SECURITY EVENT"));
+/** Why the request is waiting for a caregiver. */
+export type AlertKind = "security" | "review" | "contraindication";
+
+const REVIEW_PREFIX = "REVIEW_REQUIRED:";
+
+export function alertKind(alert: SafetyAlert): AlertKind {
+  if (alert.safety_result.startsWith("SECURITY_HOLD") || alert.warnings.some((w) => w.startsWith("SECURITY EVENT"))) {
+    return "security";
+  }
+  return alert.safety_result.startsWith(REVIEW_PREFIX) ? "review" : "contraindication";
+}
+
+/** The safety result as shown to people: review reasons without their machine prefix. */
+export function safetyText(alert: SafetyAlert): string {
+  return alert.safety_result.startsWith(REVIEW_PREFIX)
+    ? alert.safety_result.slice(REVIEW_PREFIX.length).trim()
+    : alert.safety_result;
 }
 
 /** Local "HH:MM" for a chat message, falling back to the server's own clock string. */

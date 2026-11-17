@@ -160,6 +160,65 @@ def test_documented_allergens_beyond_the_old_four_drug_list(client, message, exp
     assert chat(client, message, "s4b").json()["status"] == expected
 
 
+# -- Requests the rules cannot check are held, not approved --------------------
+
+def test_a_patient_named_only_by_name_still_gets_the_allergy_check(client):
+    body = chat(client, "Add Aspirin 81mg once daily for Robert Johnson", "n1").json()
+
+    assert body["status"] == "paused"
+    (alert,) = client.get("/api/pending").json()
+    assert alert["patient_id"] == "103"
+    assert "ASPIRIN" in alert["safety_result"]
+
+
+def test_the_selected_patient_is_used_when_the_text_names_nobody(client):
+    body = chat(client, "Add Aspirin 81mg once daily", "n2", patient_id="patient-103").json()
+
+    assert body["status"] == "paused"
+    assert client.get("/api/pending").json()[0]["patient_id"] == "103"
+
+
+def test_a_request_with_no_recognisable_drug_is_held_for_review(client):
+    body = chat(client, "hello there", "u1").json()
+
+    assert body["status"] == "paused"
+    assert body["response"] == main_mod.REVIEW_PAUSED_RESPONSE
+    (alert,) = client.get("/api/pending").json()
+    assert alert["safety_result"].startswith("REVIEW_REQUIRED:")
+    assert alert["risk_level"] == "Medium"
+    assert any("medication could not be identified" in w for w in alert["warnings"])
+    assert any("patient could not be identified" in w for w in alert["warnings"])
+
+
+@pytest.mark.parametrize(
+    "message, expected_warning",
+    [
+        ("Add Lisinopril for patient-104", "dose in mg could not be read"),
+        ("Add Lisinopril 10mg once daily", "patient could not be identified"),
+        ("Add Lisinopril 10mg once daily for patient-999", "patient could not be identified"),
+    ],
+)
+def test_missing_dose_or_patient_holds_the_request(client, message, expected_warning):
+    body = chat(client, message, "u2").json()
+
+    assert body["status"] == "paused"
+    (alert,) = client.get("/api/pending").json()
+    assert any(expected_warning in w for w in alert["warnings"])
+
+
+def test_a_held_review_request_can_be_decided_like_any_other(client):
+    chat(client, "hello there", "u3")
+    body = resolve(client, "u3", "reject").json()
+
+    assert "REJECTED_BY_CAREGIVER" in body["response"]
+    assert state(client)["resolved"][0]["status"] == "rejected"
+
+
+def test_a_json_request_is_still_accepted(client):
+    payload = '{"drug_name": "Lisinopril", "dose_mg": 10, "frequency_per_day": 1, "patient_id": "patient-104", "notes": "json"}'
+    assert chat(client, payload, "j1").json()["status"] == "completed"
+
+
 # -- Scenario 5 ---------------------------------------------------------------
 
 def test_pii_is_redacted_before_the_llm_and_at_rest(client, llm, storage):
@@ -298,8 +357,15 @@ def test_failed_resume_leaves_the_alert_pending_and_retryable(client, storage):
 
 def test_missing_store_on_vercel_is_a_clear_503(client, monkeypatch):
     monkeypatch.setenv("VERCEL", "1")
+    monkeypatch.setenv("AEGISMED_ACCESS_CODE", "test-code")
     storage_mod.set_storage(None)
 
+    # Signing in needs the store only for the attempt counter, so it fails the same clear way.
+    assert client.post("/api/login", data={"code": "test-code"}).status_code == 503
+
+    from dashboard_api import auth
+
+    client.cookies.set(auth.COOKIE_NAME, auth.make_token("test-code"))
     r = client.get("/api/state")
     assert r.status_code == 503
     assert "UPSTASH_REDIS_REST_URL" in r.json()["message"]

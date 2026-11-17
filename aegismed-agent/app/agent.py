@@ -20,7 +20,13 @@ from pydantic import BaseModel, Field
 
 from app.config import MODEL_NAME
 from app.extraction import parse_medication_text
-from app.safety_rules import CRITICAL_CONFLICT, check_allergy_conflict, verify_medication_safety
+from app.safety_rules import (
+    CRITICAL_CONFLICT,
+    REVIEW_REQUIRED,
+    check_allergy_conflict,
+    review_reasons,
+    verify_medication_safety,
+)
 from app.security import is_prompt_injection, redact_pii
 from app.storage import get_storage
 
@@ -183,17 +189,20 @@ def clinical_mcp_check(ctx: Context, node_input: Any) -> Event:
         req = MedicationRequest(drug_name="unknown", dose_mg=0.0, frequency_per_day=1)
 
     # Deterministic rules: allergy first, then dosage
-    allergy_result = check_allergy_conflict(req.patient_id, req.drug_name, get_storage().get_patients())
+    patients = get_storage().get_patients()
+    allergy_result = check_allergy_conflict(req.patient_id, req.drug_name, patients)
     dosage_result = verify_medication_safety(req.drug_name, req.dose_mg, req.frequency_per_day)
     rule_result = allergy_result if CRITICAL_CONFLICT in allergy_result else dosage_result
     has_conflict = CRITICAL_CONFLICT in rule_result
     security_event = bool(ctx.state.get("security_event"))
+    reasons = review_reasons(req.patient_id, req.drug_name, req.dose_mg, patients)
 
     if security_event:
         # The security gate already recorded a High-risk assessment.
         risk = dict(ctx.state.get("risk_assessment") or {})
         if has_conflict:
             risk["warnings"] = [*risk.get("warnings", []), rule_result]
+        risk["warnings"] = [*risk.get("warnings", []), *reasons]
         safety_result = rule_result if has_conflict else (
             "SECURITY_HOLD: Prompt-injection attempt detected; request held for caregiver review. "
             f"Rule checks: {rule_result}."
@@ -202,19 +211,28 @@ def clinical_mcp_check(ctx: Context, node_input: Any) -> Event:
         # A rule conflict is always High risk; the reviewer adds context.
         risk = {
             "risk_level": "High",
-            "warnings": [rule_result, *(assessment["warnings"] if assessment else [])],
+            "warnings": [rule_result, *reasons, *(assessment["warnings"] if assessment else [])],
             "explanation": assessment["explanation"] if assessment else "Rule-based safety check flagged a contraindication.",
         }
         safety_result = rule_result
+    elif reasons:
+        # The checks could not run properly, so a caregiver decides instead of the rules.
+        risk = {
+            "risk_level": "Medium",
+            "warnings": [*reasons, *(assessment["warnings"] if assessment else [])],
+            "explanation": assessment["explanation"] if assessment else "The request could not be fully checked automatically.",
+        }
+        safety_result = f"{REVIEW_REQUIRED}: {' '.join(reasons)}"
     else:
         risk = assessment
         safety_result = rule_result
 
     ctx.state["mcp_safety_result"] = safety_result
+    ctx.state["review_reasons"] = reasons
     if risk:
         ctx.state["risk_assessment"] = risk
 
-    if has_conflict or security_event:
+    if has_conflict or security_event or reasons:
         return Event(route="manual_triage", output=req)
     return Event(route="auto_approve", output=req)
 

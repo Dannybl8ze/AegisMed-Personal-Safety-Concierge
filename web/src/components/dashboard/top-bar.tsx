@@ -5,18 +5,22 @@ import { ShieldCheckIcon } from "lucide-react";
 import { AddPatientDialog } from "@/components/dashboard/add-patient-dialog";
 import { PatientSwitcher } from "@/components/dashboard/patient-switcher";
 import { ResetDialog } from "@/components/dashboard/reset-dialog";
+import { SignOutButton } from "@/components/dashboard/sign-out-button";
 import type { Dashboard } from "@/hooks/use-dashboard";
 import type { PatientFilter } from "@/lib/types";
 
-/** Brand, patient switcher and Add Patient. On small screens it also carries Reset. */
+/** Brand, patient switcher and Add Patient. On small screens it also carries Reset and Sign out. */
 export function TopBar({
   dashboard,
   selected,
   onSelect,
+  onSignOut,
 }: {
   dashboard: Dashboard;
   selected: PatientFilter;
   onSelect: (value: PatientFilter) => void;
+  /** Present only when the deployment asks people to sign in. */
+  onSignOut?: () => void;
 }) {
   const { data, addPatient, resetDemo } = dashboard;
 
@@ -41,6 +45,7 @@ export function TopBar({
       </div>
 
       <ResetDialog onReset={resetDemo} className="lg:hidden" />
+      {onSignOut && <SignOutButton onSignOut={onSignOut} className="lg:hidden" />}
     </header>
   );
 }

@@ -60,6 +60,15 @@ class FakeRedis:
         for key in keys:
             self.data.pop(key, None)
 
+    def incr(self, key):
+        self.data[key] = int(self.data.get(key, 0)) + 1
+        return self.data[key]
+
+    def expire(self, key, seconds):
+        self.expiry = getattr(self, "expiry", {})
+        self.expiry[key] = seconds
+        return 1
+
 
 class StoreFactory:
     """Builds storage objects that share one underlying data set, like separate processes would."""

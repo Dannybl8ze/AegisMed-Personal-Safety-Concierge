@@ -25,7 +25,9 @@ graph TD
 * **Security gate.** SSNs and phone numbers are replaced with `[REDACTED_SSN]` and `[REDACTED_PHONE]` before anything is stored or sent to the model. Requests containing prompt-injection phrases skip the model and are held for caregiver review with a High risk and a security warning.
 * **Gemini reviewer.** Adds general warnings and an explanation to the alert. It never decides on its own: the outcome comes from the deterministic rules.
 * **Safety rules** (`aegismed-agent/app/safety_rules.py`). One implementation, shared by the workflow and the MCP server: a daily Warfarin limit of 10 mg and an allergy check by drug name against the patient's documented allergies. Brand names and drug classes that are not listed for a patient are not recognised.
+* **Requests that cannot be checked are held, not approved.** The patient is taken from an id in the text, then a name in the text, then the patient chosen in the switcher. If the drug, the dose or the patient still cannot be identified, the rules have nothing to check, so the request goes to a caregiver with a "Needs review" card instead of being auto-approved.
 * **Pause and resume.** A held request pauses the ADK workflow. The paused session is stored as JSON, so any server instance can resume it when the caregiver decides.
+* **Access control.** On a hosted deployment every data endpoint requires a sign-in with a shared access code. See [Security notes](#security-notes).
 
 ### Dashboard
 
@@ -61,12 +63,15 @@ Set these as environment variables only. Never commit them.
 |---|---|---|
 | `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Gemini API-key mode | Authenticates the Gemini reviewer |
 | `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex AI mode instead of an API key | Uses Application Default Credentials |
-| `GEMINI_MODEL` | Optional | Model name, default `gemini-2.5-flash` |
+| `GEMINI_MODEL` | Optional | Model name, default `gemini-3.8-flash` |
+| `AEGISMED_ACCESS_CODE` | Required on hosted deployments | The shared access code people sign in with. Without it a hosted API serves no data (503). Changing it signs everyone out |
 | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) | Production | Durable store. Without these, local runs use JSON files; on Vercel the API answers 503 |
+| `AEGISMED_CHAT_LIMIT` | Optional | Chat requests per client per 5 minutes (default 20) |
+| `AEGISMED_DAILY_CHAT_LIMIT` | Optional | Chat requests per day for the whole deployment (default 500) |
 | `AEGISMED_DATA_DIR` | Optional, local | Folder for the JSON-file store (default `aegismed-agent/.data`) |
 | `AEGISMED_KEY_PREFIX` | Optional | Redis key namespace (default `aegismed:<VERCEL_ENV>`) |
 
-Notes on Gemini: Google plans to retire `gemini-2.5-flash` on 1 December 2026, so check its current model list and set `GEMINI_MODEL` accordingly. On the free tier Google may use prompts to improve its products, so keep the demo to fictional patients.
+Notes on Gemini: the default model replaces `gemini-2.5-flash`, which Google plans to retire on 1 December 2026. On the free tier Google may use prompts to improve its products, so keep the demo to fictional patients.
 
 ---
 
@@ -110,11 +115,13 @@ The project uses [Vercel Services](https://vercel.com/docs/services) (beta): `ve
 1. Install the CLI (`npm i -g vercel`) and sign in with `vercel login`.
 2. Create and link the project: `vercel project create aegismed-dashboard`, then `vercel link --project aegismed-dashboard`.
 3. Add a durable store. `vercel integration add upstash/upstash-kv --name aegismed-kv --billing-plan free --no-env-pull` creates a free Upstash Redis database and connects it. The first time, accept Upstash's terms in the browser when the CLI asks.
-4. Store your Gemini key as a secret. It is read from the environment, never from a file:
+4. Store your Gemini key and the access code as secrets. They are read from the environment, never from a file. Choose a long access code and paste each value at its prompt:
    ```bash
    vercel env add GOOGLE_API_KEY --environment production,preview --sensitive
+   vercel env add AEGISMED_ACCESS_CODE --environment production,preview --sensitive
    ```
-5. Deploy a preview with `vercel deploy --target=preview`, then production with `vercel deploy --prod`.
+5. Set the model (not a secret): `vercel env add GEMINI_MODEL --environment production,preview --no-sensitive`, and enter `gemini-3.8-flash`.
+6. Deploy a preview with `vercel deploy --target=preview`, then production with `vercel deploy --prod`.
 
 Previews sit behind Vercel's Deployment Protection. Use `vercel curl <url>` to call them from a terminal.
 
@@ -135,6 +142,8 @@ For Cloud Run, pass the variables above as separate `--set-env-vars` entries. Wi
 
 ## Security notes
 
-* `POST /api/chat` and the other endpoints are public and unauthenticated. Anyone with the URL can submit requests, spend your Gemini quota, and resolve alerts. Put the deployment behind Vercel authentication or add your own before using it with real data.
+* **Sign-in.** The page itself is public, but every data endpoint (`/api/state`, `/api/chat`, `/api/resolve`, `/api/reset`, `/api/patients/add`, `/api/pending`) needs a session. Signing in with `AEGISMED_ACCESS_CODE` sets a signed, HttpOnly, SameSite=Strict cookie that lasts 12 hours; the code itself is never stored in the browser. A hosted deployment with no access code configured refuses to serve data rather than run open. Local runs are open unless you set a code.
+* **Limits.** Sign-in attempts are limited to 10 per 15 minutes per client. Chat requests, which call Gemini, are limited per client and per day (see the environment variables above). The counters live in the durable store and survive a demo reset.
+* **What this does not do.** There is one shared code and one role: anyone who has the code can approve overrides and reset the demo. It is a gate for a demonstration, not user accounts, audit identity or a certified clinical control.
 * This is a demonstration of a safety workflow, not a certified clinical system. Its rules are small and name-based by design.
-* Keep API keys in the platform's environment-variable store. `.env*` files are ignored by git and by the Vercel upload.
+* Keep secrets in the platform's environment-variable store. `.env*` files are ignored by git and by the Vercel upload.
