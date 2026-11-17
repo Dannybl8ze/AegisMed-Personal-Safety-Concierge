@@ -14,9 +14,23 @@ import os
 DEFAULT_MODEL = "gemini-3.8-flash"
 MODEL_NAME = os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
 
-# One Gemini call may take this long (seconds) before it is given up on. A hosted
-# request has a hard limit of several minutes, so this keeps the failure visible.
-GEMINI_CALL_TIMEOUT_SECONDS = 75
+# When the primary model is slow, busy or unavailable, one more attempt is made with
+# a fallback model, so a bad day for one model does not stop the safety check.
+# GEMINI_FALLBACK_MODEL=off turns this off.
+DEFAULT_FALLBACK_MODEL = "gemini-3.5-flash-lite"
+
+
+def fallback_model(primary: str) -> "str | None":
+    chosen = (os.environ.get("GEMINI_FALLBACK_MODEL") or DEFAULT_FALLBACK_MODEL).strip()
+    if chosen.lower() in ("off", "none") or chosen == primary:
+        return None
+    return chosen
+
+
+# Seconds a call may take before it is given up on. A hosted request has a hard limit
+# of several minutes, so these keep a failure visible instead of leaving the page waiting.
+GEMINI_PRIMARY_TIMEOUT_SECONDS = 30
+GEMINI_CALL_TIMEOUT_SECONDS = 45
 
 _THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH")
 

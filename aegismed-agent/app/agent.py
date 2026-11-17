@@ -6,6 +6,7 @@ START -> extract -> security gate -> [LLM reviewer] -> rule checks
 import asyncio
 import base64
 import json
+import logging
 from typing import Any, AsyncGenerator, Generator, List, Optional
 
 from google.adk.agents import LlmAgent
@@ -18,7 +19,13 @@ from google.adk.workflow import Workflow
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from app.config import GEMINI_CALL_TIMEOUT_SECONDS, MODEL_NAME, thinking_level
+from app.config import (
+    GEMINI_CALL_TIMEOUT_SECONDS,
+    GEMINI_PRIMARY_TIMEOUT_SECONDS,
+    MODEL_NAME,
+    fallback_model,
+    thinking_level,
+)
 from app.extraction import parse_medication_text
 from app.safety_rules import (
     CRITICAL_CONFLICT,
@@ -31,6 +38,13 @@ from app.security import is_prompt_injection, redact_pii
 from app.storage import get_storage
 
 LLM_REVIEWER_NAME = "clinical_risk_reviewer"
+
+logger = logging.getLogger(__name__)
+
+
+def is_temporary_gemini_error(error: BaseException) -> bool:
+    """Timeouts, rate limits and server-side failures: worth trying another model for."""
+    return isinstance(error, TimeoutError) or getattr(error, "code", None) in (429, 500, 502, 503, 504)
 
 
 class LoopSafeGemini(Gemini):
@@ -57,9 +71,38 @@ class LoopSafeGemini(Gemini):
         return self.__dict__["api_client"]
 
     async def generate_content_async(self, llm_request, stream=False):
-        # Give up on a call that hangs instead of holding the whole request open.
+        fallback = fallback_model(self.model)
+        if fallback is None:
+            async with asyncio.timeout(GEMINI_CALL_TIMEOUT_SECONDS):
+                async for response in super().generate_content_async(llm_request, stream=stream):
+                    yield response
+            return
+
+        # The primary model gets a shorter time limit; if it is slow, busy or down,
+        # the same request is tried once more on the fallback model.
+        answered = False
+        try:
+            async with asyncio.timeout(GEMINI_PRIMARY_TIMEOUT_SECONDS):
+                async for response in super().generate_content_async(llm_request, stream=stream):
+                    answered = True
+                    yield response
+            return
+        except Exception as error:
+            if answered or not is_temporary_gemini_error(error):
+                raise
+            logger.warning(
+                "Gemini model %s failed (%s); retrying with %s", self.model, type(error).__name__, fallback
+            )
+
+        retry_request = llm_request.model_copy(deep=True)
+        retry_request.model = fallback
+        if retry_request.config is not None:
+            level = thinking_level(fallback)
+            retry_request.config.thinking_config = (
+                types.ThinkingConfig(thinking_level=types.ThinkingLevel[level]) if level else None
+            )
         async with asyncio.timeout(GEMINI_CALL_TIMEOUT_SECONDS):
-            async for response in super().generate_content_async(llm_request, stream=stream):
+            async for response in super().generate_content_async(retry_request, stream=stream):
                 yield response
 
 

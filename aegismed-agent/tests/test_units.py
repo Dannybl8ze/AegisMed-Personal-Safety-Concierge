@@ -279,24 +279,130 @@ def test_temporary_gemini_errors_are_retried():
     assert {429, 503} <= set(RETRY_OPTIONS.http_status_codes)
 
 
-def test_a_gemini_call_that_hangs_is_cut_off(monkeypatch):
+PRIMARY = "gemini-3.8-flash"
+
+
+def _model_call(monkeypatch, behaviours, fallback="gemini-3.5-flash-lite"):
+    """Run LoopSafeGemini against fake Gemini behaviour per model; returns (results, models_called, requests)."""
     from google.adk.models import Gemini
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai import types
 
     import app.agent as agent_mod
 
-    async def never_answers(self, llm_request, stream=False):
-        await asyncio.sleep(5)
-        yield "unreachable"
+    called, requests = [], []
 
-    monkeypatch.setattr(Gemini, "generate_content_async", never_answers)
+    async def fake_parent(self, llm_request, stream=False):
+        called.append(llm_request.model)
+        requests.append(llm_request)
+        outcome = behaviours[llm_request.model]
+        if isinstance(outcome, BaseException):
+            raise outcome
+        if outcome == "hang":
+            await asyncio.sleep(5)
+        yield f"answer from {llm_request.model}"
+
+    monkeypatch.setattr(Gemini, "generate_content_async", fake_parent)
+    monkeypatch.setattr(agent_mod, "GEMINI_PRIMARY_TIMEOUT_SECONDS", 0.05)
     monkeypatch.setattr(agent_mod, "GEMINI_CALL_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setenv("GEMINI_FALLBACK_MODEL", fallback)
+
+    request = LlmRequest(
+        model=PRIMARY,
+        config=types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel.LOW)
+        ),
+    )
 
     async def call():
-        async for _ in agent_mod.LoopSafeGemini(model="gemini-3.8-flash").generate_content_async(None):
-            pass
+        return [r async for r in agent_mod.LoopSafeGemini(model=PRIMARY).generate_content_async(request)]
 
+    return asyncio.run, call, called, requests
+
+
+def test_a_gemini_call_that_hangs_is_cut_off_when_there_is_no_fallback(monkeypatch):
+    run, call, called, _ = _model_call(monkeypatch, {PRIMARY: "hang"}, fallback="off")
     with pytest.raises(TimeoutError):
-        asyncio.run(call())
+        run(call())
+    assert called == [PRIMARY]
+
+
+def test_the_fallback_model_answers_when_the_primary_is_overloaded(monkeypatch):
+    from google.genai import errors
+
+    run, call, called, requests = _model_call(
+        monkeypatch,
+        {PRIMARY: errors.ServerError(503, {"error": {"message": "overloaded"}}), "gemini-3.5-flash-lite": "ok"},
+    )
+    assert run(call()) == ["answer from gemini-3.5-flash-lite"]
+    assert called == [PRIMARY, "gemini-3.5-flash-lite"]
+    assert requests[1].config.thinking_config.thinking_level.name == "LOW", "Gemini 3 fallbacks keep a low thinking level"
+
+
+def test_the_fallback_model_answers_when_the_primary_hangs(monkeypatch):
+    run, call, called, _ = _model_call(monkeypatch, {PRIMARY: "hang", "gemini-3.5-flash-lite": "ok"})
+    assert run(call()) == ["answer from gemini-3.5-flash-lite"]
+    assert called == [PRIMARY, "gemini-3.5-flash-lite"]
+
+
+def test_an_older_fallback_model_gets_no_thinking_level(monkeypatch):
+    from google.genai import errors
+
+    run, call, called, requests = _model_call(
+        monkeypatch,
+        {PRIMARY: errors.ServerError(503, {}), "gemini-2.5-flash": "ok"},
+        fallback="gemini-2.5-flash",
+    )
+    assert run(call()) == ["answer from gemini-2.5-flash"]
+    assert requests[1].config.thinking_config is None
+
+
+def test_the_primary_model_is_used_when_it_works(monkeypatch):
+    run, call, called, _ = _model_call(monkeypatch, {PRIMARY: "ok", "gemini-3.5-flash-lite": "ok"})
+    assert run(call()) == ["answer from gemini-3.8-flash"]
+    assert called == [PRIMARY]
+
+
+def test_errors_that_another_model_cannot_fix_are_not_retried(monkeypatch):
+    from google.genai import errors
+
+    run, call, called, _ = _model_call(
+        monkeypatch, {PRIMARY: errors.ClientError(400, {"error": {"message": "bad request"}}), "gemini-3.5-flash-lite": "ok"}
+    )
+    with pytest.raises(errors.ClientError):
+        run(call())
+    assert called == [PRIMARY]
+
+
+def test_when_the_fallback_also_fails_the_error_is_raised(monkeypatch):
+    from google.genai import errors
+
+    run, call, called, _ = _model_call(
+        monkeypatch, {PRIMARY: errors.ServerError(503, {}), "gemini-3.5-flash-lite": errors.ServerError(503, {})}
+    )
+    with pytest.raises(errors.ServerError):
+        run(call())
+    assert called == [PRIMARY, "gemini-3.5-flash-lite"]
+
+
+@pytest.mark.parametrize(
+    "setting, primary, expected",
+    [
+        (None, PRIMARY, "gemini-3.5-flash-lite"),
+        ("gemini-2.5-flash", PRIMARY, "gemini-2.5-flash"),
+        ("off", PRIMARY, None),
+        ("None", PRIMARY, None),
+        (PRIMARY, PRIMARY, None),
+    ],
+)
+def test_fallback_model_setting(monkeypatch, setting, primary, expected):
+    from app.config import fallback_model
+
+    if setting is None:
+        monkeypatch.delenv("GEMINI_FALLBACK_MODEL", raising=False)
+    else:
+        monkeypatch.setenv("GEMINI_FALLBACK_MODEL", setting)
+    assert fallback_model(primary) == expected
 
 
 # -- Static UI mount (container image) ------------------------------------------

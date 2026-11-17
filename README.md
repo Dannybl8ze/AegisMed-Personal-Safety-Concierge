@@ -23,7 +23,7 @@ graph TD
 ```
 
 * **Security gate.** SSNs and phone numbers are replaced with `[REDACTED_SSN]` and `[REDACTED_PHONE]` before anything is stored or sent to the model. Requests containing prompt-injection phrases skip the model and are held for caregiver review with a High risk and a security warning.
-* **Gemini reviewer.** Adds general warnings and an explanation to the alert. It never decides on its own: the outcome comes from the deterministic rules.
+* **Gemini reviewer.** Adds general warnings and an explanation to the alert. It never decides on its own: the outcome comes from the deterministic rules. Temporary Gemini errors are retried, a slow or unavailable primary model falls back to a second model, and if both fail the request is not approved and the user is told to try again.
 * **Safety rules** (`aegismed-agent/app/safety_rules.py`). One implementation, shared by the workflow and the MCP server: a daily Warfarin limit of 10 mg and an allergy check by drug name against the patient's documented allergies. Brand names and drug classes that are not listed for a patient are not recognised.
 * **Requests that cannot be checked are held, not approved.** The patient is taken from an id in the text, then a name in the text, then the patient chosen in the switcher. If the drug, the dose or the patient still cannot be identified, the rules have nothing to check, so the request goes to a caregiver with a "Needs review" card instead of being auto-approved.
 * **Pause and resume.** A held request pauses the ADK workflow. The paused session is stored as JSON, so any server instance can resume it when the caregiver decides.
@@ -64,6 +64,8 @@ Set these as environment variables only. Never commit them.
 | `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Gemini API-key mode | Authenticates the Gemini reviewer |
 | `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex AI mode instead of an API key | Uses Application Default Credentials |
 | `GEMINI_MODEL` | Optional | Model name, default `gemini-3.8-flash` |
+| `GEMINI_FALLBACK_MODEL` | Optional | Model tried once if the primary is slow (over 30 s), busy or down. Default `gemini-3.5-flash-lite`; `off` disables it |
+| `GEMINI_THINKING_LEVEL` | Optional | `minimal`, `low`, `medium` or `high` for Gemini 3 models (default `low`, because the default high level made this short review take minutes) |
 | `AEGISMED_ACCESS_CODE` | Required on hosted deployments | The shared access code people sign in with. Without it a hosted API serves no data (503). Changing it signs everyone out |
 | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) | Production | Durable store. Without these, local runs use JSON files; on Vercel the API answers 503 |
 | `AEGISMED_CHAT_LIMIT` | Optional | Chat requests per client per 5 minutes (default 20) |
