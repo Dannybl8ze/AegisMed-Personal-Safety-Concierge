@@ -1,0 +1,29 @@
+# Files Vercel does not need to build or run the two services.
+# (When this file exists, Vercel does not read .gitignore, so local-only
+# folders are listed here too.)
+.git
+.venv
+.env
+**/.env*
+**/__pycache__
+**/.pytest_cache
+**/node_modules
+**/.next
+/web/out
+**/web_dist
+**/.data
+*.log
+
+# Not part of the deployed app. Leading slashes anchor these to the repo root,
+# so they cannot match folders of the same name inside web/ or aegismed-agent/.
+/.agents
+/aegismed-agent/.agents
+/aegismed-agent/tests
+/aegismed-agent/features
+/dashboard
+/docs
+/Dockerfile
+/.dockerignore
+/.pre-commit-config.yaml
+/KAGGLE_SUBMISSION.md
+/validate_tool_call.py
