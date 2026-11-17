@@ -33,3 +33,7 @@ scratch/
 
 # Built dashboard UI (created by the Docker build or a local export)
 web_dist/
+
+# Vercel project link (local only)
+.vercel
+.env*

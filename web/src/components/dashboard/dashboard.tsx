@@ -62,7 +62,8 @@ function DashboardClient() {
       toast.info("No chat message was found for this request.");
       return;
     }
-    target.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "center" });
+    // Jump straight there: the highlight is timed, so it must not wait on a scroll animation.
+    target.scrollIntoView({ behavior: "auto", block: "center" });
     target.focus({ preventScroll: true });
 
     setLocated(sessionId);
