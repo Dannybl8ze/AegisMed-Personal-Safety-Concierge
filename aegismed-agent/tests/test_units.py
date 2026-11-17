@@ -275,7 +275,7 @@ def test_the_reviewer_config_matches_the_model_family():
 def test_temporary_gemini_errors_are_retried():
     from app.agent import RETRY_OPTIONS
 
-    assert RETRY_OPTIONS.attempts == 3
+    assert RETRY_OPTIONS.attempts == 2, "one retry, so a persistently overloaded model reaches the fallback quickly"
     assert {429, 503} <= set(RETRY_OPTIONS.http_status_codes)
 
 

@@ -106,11 +106,13 @@ class LoopSafeGemini(Gemini):
                 yield response
 
 
-# Temporary Gemini errors (overload, rate limits) are retried a few times with backoff.
+# Temporary Gemini errors (overload, rate limits) are retried once with a short backoff.
+# More retries would only delay the fallback model: an overloaded model usually stays
+# overloaded for longer than a few seconds.
 RETRY_OPTIONS = types.HttpRetryOptions(
-    attempts=3,
+    attempts=2,
     initial_delay=1.0,
-    max_delay=10.0,
+    max_delay=5.0,
     exp_base=2.0,
     jitter=0.5,
     http_status_codes=[429, 500, 502, 503, 504],

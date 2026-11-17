@@ -64,7 +64,7 @@ Set these as environment variables only. Never commit them.
 | `GOOGLE_API_KEY` (or `GEMINI_API_KEY`) | Gemini API-key mode | Authenticates the Gemini reviewer |
 | `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`, `GOOGLE_CLOUD_LOCATION` | Vertex AI mode instead of an API key | Uses Application Default Credentials |
 | `GEMINI_MODEL` | Optional | Model name, default `gemini-3.8-flash` |
-| `GEMINI_FALLBACK_MODEL` | Optional | Model tried once if the primary is slow (over 30 s), busy or down. Default `gemini-3.5-flash-lite`; `off` disables it |
+| `GEMINI_FALLBACK_MODEL` | Optional | Model tried once if the primary is slow (over 20 s), busy or down. Default `gemini-3.5-flash-lite`; `off` disables it |
 | `GEMINI_THINKING_LEVEL` | Optional | `minimal`, `low`, `medium` or `high` for Gemini 3 models (default `low`, because the default high level made this short review take minutes) |
 | `AEGISMED_ACCESS_CODE` | Required on hosted deployments | The shared access code people sign in with. Without it a hosted API serves no data (503). Changing it signs everyone out |
 | `UPSTASH_REDIS_REST_URL` and `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` and `KV_REST_API_TOKEN`) | Production | Durable store. Without these, local runs use JSON files; on Vercel the API answers 503 |

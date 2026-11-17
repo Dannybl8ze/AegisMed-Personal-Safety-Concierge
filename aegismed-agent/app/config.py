@@ -29,7 +29,7 @@ def fallback_model(primary: str) -> "str | None":
 
 # Seconds a call may take before it is given up on. A hosted request has a hard limit
 # of several minutes, so these keep a failure visible instead of leaving the page waiting.
-GEMINI_PRIMARY_TIMEOUT_SECONDS = 30
+GEMINI_PRIMARY_TIMEOUT_SECONDS = 20
 GEMINI_CALL_TIMEOUT_SECONDS = 45
 
 _THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH")
