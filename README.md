@@ -117,10 +117,11 @@ The project uses [Vercel Services](https://vercel.com/docs/services) (beta): `ve
 3. Add a durable store. `vercel integration add upstash/upstash-kv --name aegismed-kv --billing-plan free --no-env-pull` creates a free Upstash Redis database and connects it. The first time, accept Upstash's terms in the browser when the CLI asks.
 4. Store your Gemini key and the access code as secrets. They are read from the environment, never from a file. Choose a long access code and paste each value at its prompt:
    ```bash
-   vercel env add GOOGLE_API_KEY --environment production,preview --sensitive
-   vercel env add AEGISMED_ACCESS_CODE --environment production,preview --sensitive
+   vercel env add GOOGLE_API_KEY --environment "production,preview" --sensitive
+   vercel env add AEGISMED_ACCESS_CODE --environment "production,preview" --sensitive
    ```
-5. Set the model (not a secret): `vercel env add GEMINI_MODEL --environment production,preview --no-sensitive`, and enter `gemini-3.8-flash`.
+   (The quotes matter in PowerShell, which would otherwise split the list into two arguments.)
+5. Set the model (not a secret): `vercel env add GEMINI_MODEL --environment "production,preview" --no-sensitive`, and enter `gemini-3.8-flash`.
 6. Deploy a preview with `vercel deploy --target=preview`, then production with `vercel deploy --prod`.
 
 Previews sit behind Vercel's Deployment Protection. Use `vercel curl <url>` to call them from a terminal.
