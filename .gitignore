@@ -30,3 +30,6 @@ scratch/
 
 # Test cache
 .pytest_cache/
+
+# Built dashboard UI (created by the Docker build or a local export)
+web_dist/

@@ -1,0 +1,148 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-figtree);
+  --font-heading: var(--font-urbanist);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+
+  /* Status colours: always paired with an icon and a text label. */
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --color-caution: var(--caution);
+  --color-caution-foreground: var(--caution-foreground);
+  --color-surface-warning: var(--surface-warning);
+  --color-on-surface-warning: var(--on-surface-warning);
+  --color-surface-danger: var(--surface-danger);
+  --color-on-surface-danger: var(--on-surface-danger);
+  --color-surface-success: var(--surface-success);
+  --color-on-surface-success: var(--on-surface-success);
+  --color-surface-info: var(--surface-info);
+  --color-on-surface-info: var(--on-surface-info);
+  --color-meter-high: var(--meter-high);
+  --color-meter-medium: var(--meter-medium);
+  --color-meter-low: var(--meter-low);
+  --color-meter-off: var(--meter-off);
+
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: calc(var(--radius) * 0.75);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.25);
+  --radius-2xl: calc(var(--radius) * 1.5);
+  --radius-3xl: calc(var(--radius) * 1.75);
+
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.04), 0 14px 32px -18px rgb(16 24 40 / 0.14);
+  --animate-locate: locate-pulse 1.8s ease-in-out;
+}
+
+/*
+ * AegisMed design tokens: a light, neutral clinical palette. Soft grey page,
+ * white cards, charcoal type and controls, pastel status surfaces. Every
+ * text/background pair meets WCAG AA (4.5:1) and control boundaries meet 3:1;
+ * the ratios are listed in design-system/aegismed/pages/dashboard.md.
+ */
+:root {
+  color-scheme: light;
+  --radius: 1rem;
+
+  --background: #eef1f4;
+  --foreground: #1b2026;
+  --card: #ffffff;
+  --card-foreground: #1b2026;
+  --popover: #ffffff;
+  --popover-foreground: #1b2026;
+  --primary: #1b2026;
+  --primary-foreground: #ffffff;
+  --secondary: #f1f4f6;
+  --secondary-foreground: #1b2026;
+  --muted: #f1f4f6;
+  --muted-foreground: #56616b;
+  --accent: #eef1f4;
+  --accent-foreground: #1b2026;
+  --destructive: #c4262e;
+  --border: #e1e6ea;
+  --input: #7a8691;
+  --ring: #2563eb;
+
+  --success: #1f7a46;
+  --warning: #8f4d00;
+  --info: #1d5fbf;
+  /* Solid amber for the one cautionary action (Approve Override). */
+  --caution: #f4b740;
+  --caution-foreground: #2a1b00;
+
+  --surface-warning: #fbf0d9;
+  --on-surface-warning: #6b4100;
+  --surface-danger: #fce8e8;
+  --on-surface-danger: #8f1d22;
+  --surface-success: #e1f4e7;
+  --on-surface-success: #1b5e33;
+  --surface-info: #e4eefc;
+  --on-surface-info: #1e4b8f;
+
+  --meter-high: #d7373f;
+  --meter-medium: #b36b00;
+  --meter-low: #2e9a5b;
+  --meter-off: #d5dbe0;
+}
+
+@keyframes locate-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+  25%,
+  75% {
+    box-shadow: 0 0 0 6px color-mix(in oklab, var(--ring) 35%, transparent);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  /* Visible keyboard focus for anything that does not style its own. */
+  :focus-visible {
+    outline: 3px solid var(--ring);
+    outline-offset: 2px;
+  }
+}
+
+/* Honour the user's motion preference everywhere, including library animations. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

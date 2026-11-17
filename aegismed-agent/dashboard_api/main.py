@@ -9,10 +9,12 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, Form, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from google.adk.runners import Runner
 from google.genai import types
 
@@ -310,6 +312,26 @@ async def post_resolve(session_id: str = Form(...), decision: str = Form(...)):
 def post_reset():
     get_storage().reset_demo_state()
     return {"message": "System logs and agent runner reset successfully."}
+
+
+# -------------------------------------------------------------
+# Static UI (container deployments only)
+# -------------------------------------------------------------
+
+def mount_static_ui(application: FastAPI, directory: Path) -> bool:
+    """Serve the exported dashboard from ``directory`` at "/", if it exists.
+
+    On Vercel the Next.js service serves the UI, so nothing is mounted there.
+    The Docker image builds the UI to static files and serves them from here.
+    Call this after every API route is registered so the API keeps priority.
+    """
+    if not directory.is_dir():
+        return False
+    application.mount("/", StaticFiles(directory=directory, html=True), name="web")
+    return True
+
+
+mount_static_ui(app, Path(os.environ.get("AEGISMED_WEB_DIST") or Path(__file__).resolve().parents[1] / "web_dist"))
 
 
 if __name__ == "__main__":

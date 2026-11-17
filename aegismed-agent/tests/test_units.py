@@ -222,3 +222,29 @@ def test_gemini_client_is_env_driven_and_rebuilt_per_event_loop(monkeypatch):
     assert first is again, "one client per event loop"
     assert first is not second, "a new loop gets a new client"
     assert not first.vertexai
+
+
+# -- Static UI mount (container image) ------------------------------------------
+
+def test_static_ui_is_served_without_shadowing_the_api(tmp_path):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from dashboard_api.main import mount_static_ui
+
+    application = FastAPI()
+
+    @application.get("/api/ping")
+    def ping():
+        return {"pong": True}
+
+    assert mount_static_ui(application, tmp_path / "missing") is False
+
+    dist = tmp_path / "web_dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<h1>AegisMed</h1>", encoding="utf-8")
+    assert mount_static_ui(application, dist) is True
+
+    http = TestClient(application)
+    assert "AegisMed" in http.get("/").text
+    assert http.get("/api/ping").json() == {"pong": True}
