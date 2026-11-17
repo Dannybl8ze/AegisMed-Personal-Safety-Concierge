@@ -341,6 +341,26 @@ def test_llm_failure_returns_json_and_records_nothing(client, llm, storage):
     assert storage.get_chat() == [] and storage.get_alerts() == {} and storage.get_sessions() == {}
 
 
+def test_a_busy_gemini_gives_a_clear_message_and_approves_nothing(client, llm, storage, monkeypatch):
+    from google.genai import errors
+
+    monkeypatch.setenv("GOOGLE_API_KEY", "dummy-test-key")  # a configured key, so the error is about load
+    llm.fail = True
+    llm.error = errors.ServerError(503, {"error": {"message": "The model is overloaded."}})
+    r = chat(client, "Add Lisinopril 10mg once daily for patient-104", "e5")
+
+    assert r.status_code == 502
+    assert "busy or not answering" in r.json()["message"] and "Nothing was approved" in r.json()["message"]
+    assert storage.get_chat() == [] and storage.get_alerts() == {}
+
+
+def test_the_reviewer_is_asked_to_think_at_a_low_level(client, llm):
+    from google.genai import types
+
+    chat(client, "Add Lisinopril 10mg once daily for patient-104", "t1")
+    assert llm.thinking_levels == [types.ThinkingLevel.LOW]
+
+
 def test_failed_resume_leaves_the_alert_pending_and_retryable(client, storage):
     chat(client, WARFARIN_OVERDOSE, "e2")
     paused_session = storage.get_session("app:user-default:e2")

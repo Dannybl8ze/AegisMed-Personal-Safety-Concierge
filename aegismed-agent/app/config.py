@@ -13,6 +13,26 @@ import os
 
 DEFAULT_MODEL = "gemini-3.8-flash"
 MODEL_NAME = os.environ.get("GEMINI_MODEL") or DEFAULT_MODEL
+
+# One Gemini call may take this long (seconds) before it is given up on. A hosted
+# request has a hard limit of several minutes, so this keeps the failure visible.
+GEMINI_CALL_TIMEOUT_SECONDS = 75
+
+_THINKING_LEVELS = ("MINIMAL", "LOW", "MEDIUM", "HIGH")
+
+
+def thinking_level(model_name: str) -> "str | None":
+    """How much Gemini 3 models should think before answering, or None for other models.
+
+    Gemini 3 models think at a high level unless told otherwise. For this short
+    advisory review that took over two minutes, so the default here is "low".
+    ``GEMINI_THINKING_LEVEL`` (minimal, low, medium or high) overrides it. Older
+    models use a different control, so they are left alone.
+    """
+    if not model_name.startswith("gemini-3"):
+        return None
+    level = (os.environ.get("GEMINI_THINKING_LEVEL") or "low").strip().upper()
+    return level if level in _THINKING_LEVELS else "LOW"
 WARFARIN_THRESHOLD_MG = 10.0
 
 

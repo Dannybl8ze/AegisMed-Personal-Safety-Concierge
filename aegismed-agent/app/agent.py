@@ -18,7 +18,7 @@ from google.adk.workflow import Workflow
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from app.config import MODEL_NAME
+from app.config import GEMINI_CALL_TIMEOUT_SECONDS, MODEL_NAME, thinking_level
 from app.extraction import parse_medication_text
 from app.safety_rules import (
     CRITICAL_CONFLICT,
@@ -55,6 +55,31 @@ class LoopSafeGemini(Gemini):
         if "api_client" not in self.__dict__:
             self.__dict__["api_client"] = Gemini.api_client.func(self)
         return self.__dict__["api_client"]
+
+    async def generate_content_async(self, llm_request, stream=False):
+        # Give up on a call that hangs instead of holding the whole request open.
+        async with asyncio.timeout(GEMINI_CALL_TIMEOUT_SECONDS):
+            async for response in super().generate_content_async(llm_request, stream=stream):
+                yield response
+
+
+# Temporary Gemini errors (overload, rate limits) are retried a few times with backoff.
+RETRY_OPTIONS = types.HttpRetryOptions(
+    attempts=3,
+    initial_delay=1.0,
+    max_delay=10.0,
+    exp_base=2.0,
+    jitter=0.5,
+    http_status_codes=[429, 500, 502, 503, 504],
+)
+
+
+def reviewer_generation_config(model_name: str) -> "types.GenerateContentConfig | None":
+    """Generation settings for the reviewer: a low thinking level on Gemini 3 models."""
+    level = thinking_level(model_name)
+    if level is None:
+        return None
+    return types.GenerateContentConfig(thinking_config=types.ThinkingConfig(thinking_level=types.ThinkingLevel[level]))
 
 
 # -------------------------------------------------------------
@@ -150,7 +175,8 @@ def security_checkpoint(ctx: Context, node_input: MedicationRequest) -> Event:
 # LLM node: assess secondary clinical risk/warnings
 clinical_risk_reviewer = LlmAgent(
     name=LLM_REVIEWER_NAME,
-    model=LoopSafeGemini(model=MODEL_NAME),
+    model=LoopSafeGemini(model=MODEL_NAME, retry_options=RETRY_OPTIONS),
+    generate_content_config=reviewer_generation_config(MODEL_NAME),
     instruction=(
         "You are a clinical safety reviewer. Review the following medication request "
         "and determine its general risk level (Low, Medium, or High) based on standard safety guidelines. "

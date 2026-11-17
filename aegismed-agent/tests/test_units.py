@@ -241,6 +241,64 @@ def test_the_model_comes_from_gemini_model_with_a_current_default(monkeypatch):
         importlib.reload(config)
 
 
+@pytest.mark.parametrize(
+    "model, env, expected",
+    [
+        ("gemini-3.8-flash", None, "LOW"),
+        ("gemini-3.8-flash", "minimal", "MINIMAL"),
+        ("gemini-3.5-flash-lite", " High ", "HIGH"),
+        ("gemini-3.8-flash", "nonsense", "LOW"),
+        ("gemini-2.5-flash", None, None),
+        ("gemini-2.5-flash", "high", None),
+    ],
+)
+def test_thinking_level_is_set_only_for_gemini_3_models(monkeypatch, model, env, expected):
+    from app.config import thinking_level
+
+    if env is None:
+        monkeypatch.delenv("GEMINI_THINKING_LEVEL", raising=False)
+    else:
+        monkeypatch.setenv("GEMINI_THINKING_LEVEL", env)
+    assert thinking_level(model) == expected
+
+
+def test_the_reviewer_config_matches_the_model_family():
+    from google.genai import types
+
+    from app.agent import reviewer_generation_config
+
+    config = reviewer_generation_config("gemini-3.8-flash")
+    assert config.thinking_config.thinking_level == types.ThinkingLevel.LOW
+    assert reviewer_generation_config("gemini-2.5-flash") is None
+
+
+def test_temporary_gemini_errors_are_retried():
+    from app.agent import RETRY_OPTIONS
+
+    assert RETRY_OPTIONS.attempts == 3
+    assert {429, 503} <= set(RETRY_OPTIONS.http_status_codes)
+
+
+def test_a_gemini_call_that_hangs_is_cut_off(monkeypatch):
+    from google.adk.models import Gemini
+
+    import app.agent as agent_mod
+
+    async def never_answers(self, llm_request, stream=False):
+        await asyncio.sleep(5)
+        yield "unreachable"
+
+    monkeypatch.setattr(Gemini, "generate_content_async", never_answers)
+    monkeypatch.setattr(agent_mod, "GEMINI_CALL_TIMEOUT_SECONDS", 0.05)
+
+    async def call():
+        async for _ in agent_mod.LoopSafeGemini(model="gemini-3.8-flash").generate_content_async(None):
+            pass
+
+    with pytest.raises(TimeoutError):
+        asyncio.run(call())
+
+
 # -- Static UI mount (container image) ------------------------------------------
 
 def test_static_ui_is_served_without_shadowing_the_api(tmp_path):

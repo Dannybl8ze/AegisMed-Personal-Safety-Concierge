@@ -87,7 +87,9 @@ class StoreFactory:
 class FakeLLM:
     def __init__(self):
         self.prompts = []
+        self.thinking_levels = []
         self.fail = False
+        self.error = None  # raised instead of the default RuntimeError when fail is set
 
     @property
     def calls(self):
@@ -120,7 +122,9 @@ def llm(monkeypatch):
 
     async def generate_content_async(self, llm_request, stream=False):
         if fake.fail:
-            raise RuntimeError("simulated Gemini outage")
+            raise fake.error or RuntimeError("simulated Gemini outage")
+        thinking = getattr(llm_request.config, "thinking_config", None)
+        fake.thinking_levels.append(getattr(thinking, "thinking_level", None))
         prompt = " ".join(
             part.text for content in (llm_request.contents or []) for part in (content.parts or []) if part.text
         )

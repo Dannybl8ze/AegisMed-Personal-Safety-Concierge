@@ -60,12 +60,20 @@ def _error(status_code: int, message: str, **extra) -> JSONResponse:
     return JSONResponse(status_code=status_code, content={"status": "error", "message": message, **extra})
 
 
-def _agent_error_message() -> str:
+def _agent_error_message(error: Optional[BaseException] = None) -> str:
     if gemini_mode() == "unconfigured":
         return (
             "Gemini is not configured. Set GOOGLE_API_KEY, or GOOGLE_GENAI_USE_VERTEXAI=true "
             "with GOOGLE_CLOUD_PROJECT and GOOGLE_CLOUD_LOCATION."
         )
+    # Walk the cause chain: the SDK's error may be wrapped by the workflow engine.
+    seen = error
+    for _ in range(5):
+        if seen is None:
+            break
+        if getattr(seen, "code", None) in (429, 503) or isinstance(seen, TimeoutError):
+            return "The AI reviewer is busy or not answering right now. Nothing was approved. Please try again in a moment."
+        seen = seen.__cause__ or seen.__context__
     return "The safety workflow could not complete. See the server logs for details."
 
 
@@ -197,13 +205,13 @@ async def run_agent_message(user_id: str, session_id: str, message: str, resume_
                     texts.append(part.text)
                 if part.function_call and part.function_call.name == "adk_request_input":
                     interrupt_id = part.function_call.id
-    except Exception:
+    except Exception as error:
         logger.error("Agent workflow failed for session %s", session_id, exc_info=True)
         if snapshot is not None:
             await asyncio.to_thread(storage.save_session, key, snapshot)
         else:
             await asyncio.to_thread(storage.delete_session, key)
-        return {"status": "error", "session_id": session_id, "message": _agent_error_message()}
+        return {"status": "error", "session_id": session_id, "message": _agent_error_message(error)}
 
     session = await runner.session_service.get_session(app_name=adk_app.name, user_id=user_id, session_id=session_id)
     state = session.state if session else {}
